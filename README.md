@@ -1,6 +1,6 @@
 # APM Quick Test
 
-A (very) quick test showing how Elastic APM can log information for ExpressJS apps.
+A quick test showing how Elastic APM can log information for ExpressJS apps.
 
 ## Deploy Elastic APM
 
@@ -101,3 +101,98 @@ This demonstrates behaviour when there are more queries in queued
 up than the connection pool can support. When you example the trace
 the spans relating to mongodb queries are grouped in batches of
 five which matches the configured poolsize.
+
+**IMPORTANT NOTE**
+With v4.1 of the `mongodb` node module the default behaviour changed
+so that `monitorCommands` is false. If this is not set to true, the
+the MongoClient does not fire the events that the apm instrumentation
+expects.
+(The apm instrumentation appears to attempt to reenable this, but this
+does not appear to work.)
+
+## Service 4
+
+What about legacy code that uses something other than `axios`?
+The Elastic APM agent instruments at the level of the Http and
+Https modules so this should _just work_.
+
+Service 4 starts a server that uses `request-promise-native` to
+call the Service 2, which in turn calls Service 1. We should end
+up with a trace across all three services...
+
+To run the example, first start service 1 and 2, and then run the
+following:
+
+```
+cd service4
+npm start
+```
+
+And in a separate prompt
+
+```
+curl http://localhost:3003/legacy
+```
+
+When you look in the APM Dashboard there will be a transaction for
+service 4, and you should see that it calls Service 2 which in turn
+calls Service 1.
+
+# Timed polling
+
+What about code that is not a web service, but kicks of an activity
+with a timer? In this scenario there is no automated transaction created
+so we must use the transaction API to create one.
+
+For this example we'll use polling-service, which uses `node-cron` to
+repeatedly call Service 1.
+
+To run the example without custom transactions do the following:
+
+```
+cd polling-service
+npm i
+npm start
+```
+
+This will then call service1 every 5 seconds. If you look in the APM
+dashboard you'll see no transactions for `polling-service` but you
+will see evidence that service1 is being regularly called.
+
+If you exit the running instance, and instead start it as follows:
+
+```
+TRANSACTION=true npm start
+```
+
+the `polling-service` will start a new transaction each time the cron
+schedule triggers, and the transaction traces across into service1
+as you would expect.
+
+The same mechanism would be needed if messages are triggered by
+a message queue (e.g. Kafka, RabbitMQ etc).
+
+# Custom Spans
+
+The examples above show how APM instruments javascript code to start
+transactions when a request is recieved, and create spans to cover outbound
+http requests and database calls. What about tracking our internal code more
+closely? Maybe there are functions that can be slow processing data. This
+is where custom spans could be useful.
+
+Assuming that service1 is still running you can execute a custom span example
+as follows:
+
+```
+cd custom-spans
+npm i
+npm start
+```
+
+This is run a script where each function is annotated as a span, and it makes a couple
+of calls to service1. When you view the output in the APM dashboard you can clearly see
+which function is calling what, and where time is being spent. (The example includes some
+delays to make this all nice and clear).
+
+Annotating every function is unlikely to be worthwhile but, depending on your codebase, you
+could imagine annotating the entry/exit of certain areas of logic.
